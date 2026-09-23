@@ -21,6 +21,25 @@ Item {
     property string pendingAddr: ""
     property real lastRefreshTime: 0
 
+    // Hyprland bridge. The bindings in ~/.config/hypr/bindings.lua only route
+    // SUPER+TAB here while quickswitch_loaded is set (otherwise the Omarchy
+    // default "Next workspace" applies), and all in-switcher keys live in the
+    // "quickswitch" submap, which is only active while the strip is open. That
+    // keeps SUPER+Q/arrows untouched outside the switcher.
+    readonly property string leaveSubmap:
+        'if hl.get_current_submap() == "quickswitch" then hl.dispatch(hl.dsp.submap("reset")) end'
+
+    function hlEval(code) { Quickshell.execDetached(["hyprctl", "eval", code]) }
+    function announce() { hlEval('quickswitch_loaded = true; ' + leaveSubmap) }
+
+    Component.onCompleted: announce()
+    Component.onDestruction: hlEval('quickswitch_loaded = false; ' + leaveSubmap)
+
+    onOpenChanged: {
+        if (open) Hyprland.dispatch('hl.dsp.submap("quickswitch")')
+        else hlEval(leaveSubmap)
+    }
+
     function next() { if (windows.length) selected = (selected + 1) % windows.length }
     function prev() { if (windows.length) selected = (selected + windows.length - 1) % windows.length }
 
@@ -91,6 +110,10 @@ Item {
         target: Hyprland
         function onRawEvent(event) {
             switch (event.name) {
+            case "configreloaded":
+                // A config reload recreates the Lua state; re-announce.
+                root.announce()
+                break
             case "openwindow":
             case "closewindow":
             case "changefloatingmode":
@@ -115,45 +138,34 @@ Item {
         }
     }
 
-    // Arrow keys (SUPER+Left/Right/Up/Down). The default Omarchy tiling
-    // bindings consume these before they reach the overlay's exclusive
-    // keyboard grab, so we intercept them here and re-dispatch: while the
-    // switcher is open they cycle prev/next; when closed they restore the
-    // original "focus adjacent window" behavior.
+    // In-switcher keys. These are bound only inside the "quickswitch" submap
+    // (see bindings.lua), so they never shadow the normal SUPER bindings.
+    function stepFromKey(forward) {
+        if (!root.open) return
+        root.sawKeyEvent = true
+        root.modsHeld = true
+        if (forward) root.next(); else root.prev()
+    }
+
+    GlobalShortcut { appid: root.shortAppId; name: "prev"; onPressed: root.stepFromKey(false) }
+    GlobalShortcut { appid: root.shortAppId; name: "focus-left"; onPressed: root.stepFromKey(false) }
+    GlobalShortcut { appid: root.shortAppId; name: "focus-up"; onPressed: root.stepFromKey(false) }
+    GlobalShortcut { appid: root.shortAppId; name: "focus-right"; onPressed: root.stepFromKey(true) }
+    GlobalShortcut { appid: root.shortAppId; name: "focus-down"; onPressed: root.stepFromKey(true) }
+
+    // SUPER+Q inside the switcher. As a SUPER-bound shortcut it cannot fire
+    // from a plain Q press, and the user's global SUPER+Q (close focused
+    // window) is inactive while the submap is on.
     GlobalShortcut {
         appid: root.shortAppId
-        name: "focus-left"
-        onPressed: {
-            if (root.open) { root.sawKeyEvent = true; root.modsHeld = true; root.prev() }
-            else { Hyprland.dispatch('hl.dsp.focus({ direction = "l" })') }
-        }
+        name: "quit"
+        onPressed: if (root.open) root.quitSelected()
     }
 
     GlobalShortcut {
         appid: root.shortAppId
-        name: "focus-right"
-        onPressed: {
-            if (root.open) { root.sawKeyEvent = true; root.modsHeld = true; root.next() }
-            else { Hyprland.dispatch('hl.dsp.focus({ direction = "r" })') }
-        }
-    }
-
-    GlobalShortcut {
-        appid: root.shortAppId
-        name: "focus-up"
-        onPressed: {
-            if (root.open) { root.sawKeyEvent = true; root.modsHeld = true; root.prev() }
-            else { Hyprland.dispatch('hl.dsp.focus({ direction = "u" })') }
-        }
-    }
-
-    GlobalShortcut {
-        appid: root.shortAppId
-        name: "focus-down"
-        onPressed: {
-            if (root.open) { root.sawKeyEvent = true; root.modsHeld = true; root.next() }
-            else { Hyprland.dispatch('hl.dsp.focus({ direction = "d" })') }
-        }
+        name: "cancel"
+        onPressed: root.close(false)
     }
 
     Process {
@@ -198,9 +210,13 @@ Item {
                 dead: false,
                 handle: null
             }
-            rec.handle = tl ? tl.wayland : null
             rec.title = c.title || "-"
             rec.cls = c.class || c.initialClass || ""
+            // Never screencopy password managers, auth prompts or private
+            // browsing windows; they fall back to the app icon.
+            rec.sensitive = Logic.isSensitive(rec.cls, rec.title)
+                || Logic.isSensitive(c.initialClass, c.initialTitle)
+            rec.handle = (tl && !rec.sensitive) ? tl.wayland : null
             rec.workspaceId = c.workspace ? c.workspace.id : rec.workspaceId
             rec.workspaceName = c.workspace ? c.workspace.name : rec.workspaceName
             records.push(rec)
@@ -242,13 +258,13 @@ Item {
                     interval: 150
                     repeat: true
                     running: true
+                    // Poll SUPER for as long as the strip is open (not just
+                    // until the first key event), so a missed release event
+                    // can never leave the exclusive keyboard grab stuck. A
+                    // failing hyprctl also closes the strip.
                     onTriggered: {
-                        if (root.sawKeyEvent) {
-                            if (root.modsHeld) stop()
-                            else panel.activate()
-                        } else {
-                            modCheck.running = true
-                        }
+                        if (root.sawKeyEvent && !root.modsHeld) panel.activate()
+                        else modCheck.running = true
                     }
                 }
 
@@ -258,7 +274,8 @@ Item {
                         'error(tostring(hl.is_key_down("Super_L") or hl.is_key_down("Super_R")))']
                     stdout: StdioCollector {
                         onStreamFinished: {
-                            if (!root.open || root.sawKeyEvent) return
+                            if (!root.open) return
+                            if (Date.now() - root.lastRefreshTime < 300) return
                             if (!text.trim().endsWith("true"))
                                 panel.activate()
                         }
@@ -500,14 +517,6 @@ Item {
                         root.modsHeld = true
                         if (event.key === Qt.Key_Escape) {
                             root.close(false)
-                            event.accepted = true
-                            return
-                        }
-                        // SUPER+Q quits the highlighted app. Being inside the
-                        // exclusive grab already means SUPER is held, so don't
-                        // rely on event.modifiers (which isn't reliably set).
-                        if (event.key === Qt.Key_Q || event.key === Qt.Key_q) {
-                            root.quitSelected()
                             event.accepted = true
                             return
                         }

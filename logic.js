@@ -12,6 +12,10 @@ function orderClients(clients) {
 
     for (const c of clients) {
         if (c.pinned) continue;
+        // Special workspaces (scratchpads) have negative ids; windows parked
+        // there are hidden on purpose and must not show up in the switcher.
+        if (!c.workspace || c.workspace.id < 0) continue;
+        if (c.hidden || c.mapped === false) continue;
         const fhid = c.focusHistoryID === undefined ? 0 : c.focusHistoryID;
         if (fhid === 0) {
             active = c;
@@ -25,6 +29,16 @@ function orderClients(clients) {
     const ordered = rest;
     if (active) ordered.push(active);
     return ordered;
+}
+
+// Windows whose content must never be screen-captured into a preview card
+// (password managers, auth prompts, private browsing). They get the icon
+// fallback instead of a snapshot.
+const SENSITIVE_CLASS = /keepass|1password|bitwarden|proton.?pass|enpass|pinentry|gcr-prompter|polkit|seahorse|kwallet|secrets|authenticator|signal|veracrypt/i;
+const SENSITIVE_TITLE = /private browsing|incognito|inprivate|privates? fenster|privater modus|inkognito|password|passwort|kennwort/i;
+
+function isSensitive(cls, title) {
+    return SENSITIVE_CLASS.test(String(cls || "")) || SENSITIVE_TITLE.test(String(title || ""));
 }
 
 // Group the cycle-ordered windows by workspace (ascending id), preserving the
