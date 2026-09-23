@@ -1,6 +1,6 @@
--- ewweberlin.quickswitch: hardened bindings. Copy this block into
--- ~/.config/hypr/bindings.lua instead of dofile()-ing it, so plugin updates
--- can never inject code into the Hyprland config.
+-- ewweberlin.quickswitch bindings. Load with dofile() from
+-- ~/.config/hypr/bindings.lua, or paste this block there instead if you prefer
+-- plugin updates never to change your Hyprland config (see README).
 
 -- SUPER+TAB opens the switcher while the plugin is loaded (it sets
 -- quickswitch_loaded via hyprctl eval) and falls back to the Omarchy default

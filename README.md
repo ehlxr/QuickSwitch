@@ -10,14 +10,20 @@ A beautiful, themed window/task switcher in the style of the macOS app switcher,
 ## Features
 
 - **SUPER+TAB** opens the switcher.
-- tap **TAB (or Arrow Keys)** repeatedly while holding SUPER to advance the selection (most-recently-used order, current window skipped).
-- **Mouse hover** highlights an item; **click** activates it.
+- A **quick SUPER+TAB tap** jumps straight to the previously used window
+  without flashing the overlay; tap again to jump back (like macOS Cmd+Tab).
+  The strip only appears once SUPER is held for a moment.
+- tap **TAB (or Arrow Keys)** repeatedly while holding SUPER to advance the selection (most-recently-used order, current window skipped). **SUPER+SHIFT+TAB** goes back.
+- **Mouse hover** highlights an item once the pointer moves; **click** activates it.
 - **SUPER+Q** quits the highlighted app.
 - **Release SUPER** to activate the selected window — which switches you to
   that window's **workspace**.
 - Every item is a **still window snapshot** (captured when the switcher opens)
   with the **app icon in the top-left corner**, arranged in a horizontal strip
   centered on the screen.
+- Password managers, auth prompts and private browsing windows are **never
+  captured**; they show the app icon instead.
+- Windows on special workspaces (scratchpads) are not listed.
 - Compatible with **Omarchy Themes**. 
 
 ## Requirements
@@ -54,6 +60,10 @@ hyprctl globalshortcuts
 
 The `SUPER + TAB` shortcut should appear in `hyprctl globalshortcuts`.
 
+If you prefer that plugin updates never change your Hyprland config, paste the
+contents of `task-switch-bindings.lua` into `bindings.lua` instead of the
+`dofile` line.
+
 ### Removal
 
 ```sh
@@ -75,8 +85,14 @@ omarchy plugin update ewweberlin.quickswitch
 
 - **SUPER+TAB was already bound** in Omarchy to **"Next workspace"**
   (`hl.dsp.focus e+1`). The bindings file unbinds it first, so SUPER+TAB now
-  opens the switcher. The other workspace-shortcuts (`SUPER+SHIFT+TAB`,
-  `SUPER+CTRL+TAB`) are untouched.
+  opens the switcher. While the plugin is disabled or not loaded, SUPER+TAB
+  falls back to "Next workspace", so there is never a dead key. The other
+  workspace-shortcuts (`SUPER+SHIFT+TAB` outside the switcher, `SUPER+CTRL+TAB`)
+  are untouched.
+- All in-switcher keys (TAB, SHIFT+TAB, arrows, Q, Esc) live in a Hyprland
+  submap named `quickswitch` that is only active while the strip is open, so
+  your own SUPER+arrow / SUPER+Q bindings keep working everywhere else.
+  **Esc** always leaves the submap, even if the shell has crashed.
 - **SUPER+Q** quits the highlighted app only while the switcher is open. For a
   global close-this-window, **SUPER+W** already does that everywhere.
 - Releasing SUPER with **no item highlighted / pointer outside** the strip
