@@ -51,6 +51,7 @@ Item {
     function close(doFocus) {
         if (!open) return
         const entry = (doFocus && windows.length) ? windows[selected] : null
+        console.log("[task-switch] close focus=", doFocus, "sel=", selected, entry ? entry.cls : "-")
         open = false
         if (!entry) return
         pendingAddr = entry.address
@@ -251,6 +252,28 @@ Item {
                 color: "transparent"
                 anchors { top: true; bottom: true; left: true; right: true }
 
+                // Show the overlay only once SUPER is held for a moment, so a
+                // quick SUPER+TAB tap switches straight to the previous app
+                // without a flash (macOS Cmd+Tab behavior). The surface is
+                // mapped right away, so the keyboard grab is active anyway.
+                property bool shown: false
+                Timer {
+                    interval: 150
+                    running: true
+                    onTriggered: panel.shown = true
+                }
+
+                // A strip appearing under a resting pointer gets a synthetic
+                // hover enter; that must not override the MRU selection. Hover
+                // only counts after the pointer has actually moved.
+                onHoverArmedChanged: if (hoverArmed) mouseInside = stripHover.hovered
+
+                function trackPointer(p) {
+                    if (hoverArmed) return
+                    if (initialPos.x < 0) initialPos = Qt.point(p.x, p.y)
+                    else if (Math.abs(p.x - initialPos.x) + Math.abs(p.y - initialPos.y) > 4) hoverArmed = true
+                }
+
                 function activate() { root.close(panel.mouseInside) }
 
                 Timer {
@@ -285,11 +308,17 @@ Item {
                 Rectangle {
                     anchors.fill: parent
                     color: Color.menu.scrim
+                    opacity: panel.shown ? 1 : 0
+
+                    HoverHandler {
+                        onPointChanged: panel.trackPointer(point.scenePosition)
+                    }
                 }
 
                 // Clicking empty space dismisses without switching focus.
                 MouseArea {
                     anchors.fill: parent
+                    enabled: panel.shown
                     onClicked: root.close(false)
                 }
 
@@ -300,6 +329,7 @@ Item {
                     width: strip.width
                     height: strip.height
                     focus: true
+                    opacity: panel.shown ? 1 : 0
                     Keys.priority: Keys.BeforeItem
 
                     BorderSurface {
@@ -334,11 +364,15 @@ Item {
                                 required property int index
                                 readonly property var win: root.windows[index]
                                 readonly property bool isSelected: root.selected === index
+                                readonly property bool hovered: hover.hovered && panel.hoverArmed
+                                // Also fires when hover gets armed while the
+                                // pointer already rests on this card.
+                                onHoveredChanged: if (hovered) root.selected = index
 
                                 width: 180
                                 height: 130
 
-                                scale: (isSelected || hover.hovered) ? 1.05 : 1.0
+                                scale: (isSelected || hovered) ? 1.05 : 1.0
                                 opacity: isSelected ? 1.0 : 0.85
                                 transformOrigin: Item.Center
 
@@ -357,14 +391,14 @@ Item {
                                     clip: true
                                     borderSpec: Border.surfaceSpec(
                                         "popups", "border",
-                                        isSelected || hover.hovered ? Color.menu.selectedBorder : Color.popups.border,
+                                        isSelected || hovered ? Color.menu.selectedBorder : Color.popups.border,
                                         2)
 
                                     // Omarchy selection/hover affordance: a subtle
                                     // fill highlight instead of a hard-coded border.
                                     Rectangle {
                                         anchors.fill: parent
-                                        visible: isSelected || hover.hovered
+                                        visible: isSelected || hovered
                                         color: Color.menu.selectedBackground
                                     }
 
@@ -476,12 +510,11 @@ Item {
 
                                 HoverHandler {
                                     id: hover
-                                    onHoveredChanged: {
-                                        if (hovered) root.selected = index
-                                    }
+                                    onPointChanged: panel.trackPointer(point.scenePosition)
                                 }
 
                                 TapHandler {
+                                    enabled: panel.shown
                                     onTapped: {
                                         root.selected = index
                                         root.close(true)
@@ -555,7 +588,9 @@ Item {
                     }
 
                     HoverHandler {
-                        onHoveredChanged: panel.mouseInside = hovered
+                        id: stripHover
+                        onPointChanged: panel.trackPointer(point.scenePosition)
+                        onHoveredChanged: if (panel.hoverArmed) panel.mouseInside = hovered
                     }
 
                     Component.onCompleted: forceActiveFocus()
