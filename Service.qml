@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -11,6 +12,8 @@ Item {
     id: root
 
     readonly property string shortAppId: "ewweberlin.quickswitch"
+    readonly property real cardRadius: Math.max(Style.cornerRadius, 14)
+    readonly property real stripRadius: Math.max(Style.cornerRadius * 1.5, 20)
 
     property bool open: false
     property var windows: []
@@ -288,7 +291,7 @@ Item {
                     BorderSurface {
                         id: stripBg
                         anchors.fill: strip
-                        radius: Style.cornerRadius
+                        radius: root.stripRadius
                         color: Color.popups.background
                         borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, 2)
                     }
@@ -320,118 +323,164 @@ Item {
 
                                 width: 180
                                 height: 130
+                                z: isSelected ? 10 : (hover.hovered ? 5 : 1)
 
-                                scale: (isSelected || hover.hovered) ? 1.05 : 1.0
-                                opacity: isSelected ? 1.0 : 0.85
+                                scale: isSelected ? 1.08 : (hover.hovered ? 1.03 : 1.0)
+                                opacity: isSelected ? 1.0 : (hover.hovered ? 0.9 : 0.6)
                                 transformOrigin: Item.Center
 
                                 Behavior on scale {
-                                    NumberAnimation { duration: 90; easing.type: Easing.OutQuad }
+                                    NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
                                 }
                                 Behavior on opacity {
-                                    NumberAnimation { duration: 90; easing.type: Easing.OutQuad }
+                                    NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+                                }
+
+                                // Outer accent glow/ring to highlight the selected window
+                                Rectangle {
+                                    id: selectionGlow
+                                    anchors.fill: parent
+                                    anchors.margins: -4
+                                    radius: root.cardRadius + 4
+                                    color: "transparent"
+                                    border.color: isSelected ? Qt.alpha(Color.accent, 0.45) : "transparent"
+                                    border.width: 3
+                                    visible: isSelected
+                                    z: 0
+
+                                    Behavior on border.color {
+                                        ColorAnimation { duration: 120 }
+                                    }
                                 }
 
                                 BorderSurface {
                                     id: frame
                                     anchors.fill: parent
-                                    radius: Style.cornerRadius
+                                    radius: root.cardRadius
                                     color: Color.popups.background
                                     clip: true
                                     borderSpec: Border.surfaceSpec(
                                         "popups", "border",
-                                        isSelected || hover.hovered ? Color.menu.selectedBorder : Color.popups.border,
-                                        2)
+                                        isSelected ? Color.accent : (hover.hovered ? Qt.alpha(Color.accent, 0.6) : Color.popups.border),
+                                        isSelected ? 3 : 2)
 
-                                    // Omarchy selection/hover affordance: a subtle
-                                    // fill highlight instead of a hard-coded border.
-                                    Rectangle {
+                                    // Shape mask for card contents to clip cleanly to rounded corners
+                                    Item {
+                                        id: cardMask
                                         anchors.fill: parent
-                                        visible: isSelected || hover.hovered
-                                        color: Color.menu.selectedBackground
+                                        visible: false
+                                        layer.enabled: true
+
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            radius: root.cardRadius
+                                            color: "white"
+                                        }
                                     }
 
-                                    // Snapshot taken while the switcher opens. The
-                                    // screencopy recording context takes a moment to
-                                    // establish, and its first delivered buffer is
-                                    // often empty/uninitialized. So: keep requesting
-                                    // frames while open, and once the first content
-                                    // frame arrives keep grabbing a short "settle"
-                                    // burst so a real (populated) frame replaces the
-                                    // blank one, then freeze. Cards are recreated
-                                    // fresh on every open (the panel is torn down when
-                                    // closed), so there is no cache across opens.
-                                    ScreencopyView {
-                                        id: thumb
+                                    Item {
+                                        id: cardContent
                                         anchors.fill: parent
-                                        anchors.margins: 2
-                                        z: 3
-                                        captureSource: win ? win.handle : null
-                                        live: false
-                                        paintCursor: false
-                                        visible: win && win.handle && hasContent
-
-                                        // Whether a real snapshot has been frozen for
-                                        // this open. Reset automatically because the
-                                        // card is recreated fresh on each open.
-                                        property bool frozen: false
-                                        property int settleTicks: 0
-
-                                        // Grab a frame as soon as a source is set
-                                        // (kicks off context setup immediately).
-                                        onCaptureSourceChanged: {
-                                            if (thumb.captureSource) {
-                                                thumb.captureFrame()
-                                                thumb.settleTicks = 0
-                                                thumb.frozen = false
-                                            }
+                                        layer.enabled: true
+                                        layer.smooth: true
+                                        layer.effect: MultiEffect {
+                                            maskEnabled: true
+                                            maskSource: cardMask
+                                            maskThresholdMin: 0.3
+                                            maskSpreadAtMin: 0.3
                                         }
 
-                                        // Runs whenever the switcher is open and a
-                                        // source exists — driver via a bound
-                                        // `running`, so a freshly-added window whose
-                                        // onCaptureSourceChanged may not fire still
-                                        // gets captured. Stops after a settle burst
-                                        // once real content is present.
-                                        Timer {
-                                            id: grabber
-                                            interval: 90
-                                            repeat: true
-                                            running: root.open && !!thumb.captureSource && !thumb.frozen
-                                            onTriggered: {
-                                                thumb.captureFrame()
-                                                if (thumb.hasContent) {
-                                                    thumb.settleTicks += 1
-                                                    if (thumb.settleTicks >= 4) {
-                                                        thumb.frozen = true
-                                                        thumb.settleTicks = 0
+                                        // Snapshot taken while the switcher opens. The
+                                        // screencopy recording context takes a moment to
+                                        // establish, and its first delivered buffer is
+                                        // often empty/uninitialized. So: keep requesting
+                                        // frames while open, and once the first content
+                                        // frame arrives keep grabbing a short "settle"
+                                        // burst so a real (populated) frame replaces the
+                                        // blank one, then freeze. Cards are recreated
+                                        // fresh on every open (the panel is torn down when
+                                        // closed), so there is no cache across opens.
+                                        ScreencopyView {
+                                            id: thumb
+                                            anchors.fill: parent
+                                            anchors.margins: isSelected ? 3 : 2
+                                            z: 1
+                                            captureSource: win ? win.handle : null
+                                            live: false
+                                            paintCursor: false
+                                            visible: win && win.handle && hasContent
+
+                                            // Whether a real snapshot has been frozen for
+                                            // this open. Reset automatically because the
+                                            // card is recreated fresh on each open.
+                                            property bool frozen: false
+                                            property int settleTicks: 0
+
+                                            // Grab a frame as soon as a source is set
+                                            // (kicks off context setup immediately).
+                                            onCaptureSourceChanged: {
+                                                if (thumb.captureSource) {
+                                                    thumb.captureFrame()
+                                                    thumb.settleTicks = 0
+                                                    thumb.frozen = false
+                                                }
+                                            }
+
+                                            // Runs whenever the switcher is open and a
+                                            // source exists — driver via a bound
+                                            // `running`, so a freshly-added window whose
+                                            // onCaptureSourceChanged may not fire still
+                                            // gets captured. Stops after a settle burst
+                                            // once real content is present.
+                                            Timer {
+                                                id: grabber
+                                                interval: 90
+                                                repeat: true
+                                                running: root.open && !!thumb.captureSource && !thumb.frozen
+                                                onTriggered: {
+                                                    thumb.captureFrame()
+                                                    if (thumb.hasContent) {
+                                                        thumb.settleTicks += 1
+                                                        if (thumb.settleTicks >= 4) {
+                                                            thumb.frozen = true
+                                                            thumb.settleTicks = 0
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
-                                    }
 
-                                    // Fallback while content loads / when a window
-                                    // can't be captured: dim area + centered icon.
-                                    Rectangle {
-                                        anchors.fill: parent
-                                        color: Qt.alpha(Color.foreground, 0.05)
-                                    }
+                                        // Fallback while content loads / when a window
+                                        // can't be captured: dim area + centered icon.
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            color: Qt.alpha(Color.foreground, 0.05)
+                                        }
 
-                                    Rectangle {
-                                        id: captureFallback
-                                        anchors.fill: parent
-                                        visible: !thumb.visible
-                                        color: Color.popups.background
+                                        Rectangle {
+                                            id: captureFallback
+                                            anchors.fill: parent
+                                            visible: !thumb.visible
+                                            color: Color.popups.background
 
-                                        Image {
-                                            anchors.centerIn: parent
-                                            width: 64
-                                            height: 64
-                                            sourceSize.width: 64
-                                            sourceSize.height: 64
-                                            fillMode: Image.PreserveAspectFit
-                                            source: win ? root.iconPathFor(win.cls, win.title) : ""
+                                            Image {
+                                                anchors.centerIn: parent
+                                                width: 64
+                                                height: 64
+                                                sourceSize.width: 64
+                                                sourceSize.height: 64
+                                                fillMode: Image.PreserveAspectFit
+                                                source: win ? root.iconPathFor(win.cls, win.title) : ""
+                                            }
+                                        }
+
+                                        // Subtle accent highlight wash over preview when selected
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            color: Color.accent
+                                            opacity: isSelected ? 0.08 : 0
+                                            visible: isSelected
+                                            z: 2
                                         }
                                     }
 
@@ -440,20 +489,34 @@ Item {
                                         anchors.left: parent.left
                                         anchors.top: parent.top
                                         anchors.margins: Style.spacing.md
-                                        width: 56
-                                        height: 56
-                                        radius: Style.cornerRadius
-                                        color: "transparent"
+                                        width: 44
+                                        height: 44
+                                        radius: 10
+                                        color: Qt.rgba(0, 0, 0, 0.5)
+                                        border.color: Qt.rgba(255, 255, 255, 0.15)
+                                        border.width: 1
                                         z: 4
 
                                         Image {
-                                            anchors.fill: parent
-                                            anchors.margins: 4
-                                            sourceSize.width: 48
-                                            sourceSize.height: 48
+                                            anchors.centerIn: parent
+                                            width: 30
+                                            height: 30
+                                            sourceSize.width: 30
+                                            sourceSize.height: 30
                                             fillMode: Image.PreserveAspectFit
                                             source: win ? root.iconPathFor(win.cls, win.title) : ""
                                         }
+                                    }
+
+                                    // Top border overlay to ensure rounded border is never obscured
+                                    Rectangle {
+                                        id: topBorderOverlay
+                                        anchors.fill: parent
+                                        radius: root.cardRadius
+                                        color: "transparent"
+                                        border.color: isSelected ? Color.accent : (hover.hovered ? Qt.alpha(Color.accent, 0.6) : Color.popups.border)
+                                        border.width: isSelected ? 3 : 2
+                                        z: 5
                                     }
                                 }
 
@@ -474,20 +537,32 @@ Item {
                         }
                     }
 
-                    Text {
-                        id: titleLabel
+                    Rectangle {
+                        id: titlePill
                         anchors.horizontalCenter: strip.horizontalCenter
                         anchors.top: strip.bottom
-                        anchors.topMargin: Style.spacing.xl
-                        width: Math.min(strip.width, 640)
-                        maximumLineCount: 1
-                        elide: Text.ElideRight
-                        horizontalAlignment: Text.AlignHCenter
-                        text: root.windows.length ? root.windows[root.selected].title : ""
-                        color: Color.popups.text
-                        font.family: Style.font.family
-                        font.pixelSize: Style.font.body
-                        font.weight: Font.DemiBold
+                        anchors.topMargin: Style.spacing.lg
+                        visible: root.windows.length > 0 && !!root.windows[root.selected].title
+                        height: titleLabel.implicitHeight + Style.spacing.sm * 2
+                        width: Math.min(titleLabel.implicitWidth + Style.spacing.lg * 2, Math.max(strip.width, 360), 680)
+                        radius: height / 2
+                        color: Color.popups.background
+                        border.color: Color.popups.border
+                        border.width: 1
+
+                        Text {
+                            id: titleLabel
+                            anchors.centerIn: parent
+                            width: parent.width - Style.spacing.lg * 2
+                            maximumLineCount: 1
+                            elide: Text.ElideRight
+                            horizontalAlignment: Text.AlignHCenter
+                            text: root.windows.length ? root.windows[root.selected].title : ""
+                            color: Color.popups.text
+                            font.family: Style.font.family
+                            font.pixelSize: Style.font.body
+                            font.weight: Font.DemiBold
+                        }
                     }
 
                     // Keyboard navigation. The exclusive keyboard grab keeps
