@@ -1,35 +1,37 @@
--- ewweberlin.quickswitch — bindings to inject into the Hyprland Lua config
--- (~/.config/hypr/bindings.lua). Hyprland >= 0.56 (Lua config).
+-- ewweberlin.quickswitch bindings. Load with dofile() from
+-- ~/.config/hypr/bindings.lua, or paste this block there instead if you prefer
+-- plugin updates never to change your Hyprland config (see README).
 
--- The "Task switch" description acts as a sentinel for the plugin's
--- binding-present check.
-
--- SUPER+TAB opens the switcher; repeated presses (while holding SUPER) advance
--- the selection. Previously bound to "Next workspace" (hl.dsp.focus e+1).
+-- SUPER+TAB opens the switcher while the plugin is loaded (it sets
+-- quickswitch_loaded via hyprctl eval) and falls back to the Omarchy default
+-- "Next workspace" otherwise, so a disabled/removed plugin leaves no dead key.
 hl.unbind("SUPER + TAB")
-o.bind("SUPER + TAB", "Task switch", hl.dsp.global("ewweberlin.quickswitch:next"), { repeating = true })
+o.bind("SUPER + TAB", "Task switch", function()
+  if quickswitch_loaded then
+    hl.dispatch(hl.dsp.global("ewweberlin.quickswitch:next"))
+  else
+    hl.dispatch(hl.dsp.focus({ workspace = "e+1" }))
+  end
+end, { repeating = true })
 
--- SUPER + Arrows cycle the switcher selection while it is open. The defaults
--- in tiling.lua bind these to "Focus on left/right/above/below window", which
--- consumes the events before they reach the overlay's exclusive keyboard grab.
--- We unbind + rebind as GlobalShortcuts; when the switcher is closed the
--- handler re-dispatches the original focus command.
-hl.unbind("SUPER + LEFT")
-o.bind("SUPER + LEFT", "Focus on left window", hl.dsp.global("ewweberlin.quickswitch:focus-left"), { repeating = true })
+-- Keys active only while the switcher is open (the plugin enters/leaves this
+-- submap). Normal SUPER+arrows / SUPER+Q bindings stay untouched outside it.
+-- ESCAPE always leaves the submap, even if the plugin has died.
+hl.define_submap("quickswitch", function()
+  local qs = function(name) return hl.dsp.global("ewweberlin.quickswitch:" .. name) end
+  hl.bind("SUPER + TAB", qs("next"), { repeating = true })
+  hl.bind("SUPER + SHIFT + TAB", qs("prev"), { repeating = true })
+  hl.bind("SUPER + LEFT", qs("focus-left"), { repeating = true })
+  hl.bind("SUPER + RIGHT", qs("focus-right"), { repeating = true })
+  hl.bind("SUPER + UP", qs("focus-up"), { repeating = true })
+  hl.bind("SUPER + DOWN", qs("focus-down"), { repeating = true })
+  hl.bind("SUPER + Q", qs("quit"))
+  for _, keys in ipairs({ "ESCAPE", "SUPER + ESCAPE" }) do
+    hl.bind(keys, function()
+      hl.dispatch(qs("cancel"))
+      hl.dispatch(hl.dsp.submap("reset"))
+    end)
+  end
+end)
 
-hl.unbind("SUPER + RIGHT")
-o.bind("SUPER + RIGHT", "Focus on right window", hl.dsp.global("ewweberlin.quickswitch:focus-right"), { repeating = true })
-
-hl.unbind("SUPER + UP")
-o.bind("SUPER + UP", "Focus on above window", hl.dsp.global("ewweberlin.quickswitch:focus-up"), { repeating = true })
-
-hl.unbind("SUPER + DOWN")
-o.bind("SUPER + DOWN", "Focus on below window", hl.dsp.global("ewweberlin.quickswitch:focus-down"), { repeating = true })
-
--- SUPER+Q quits the highlighted app while the switcher is open. It is handled
--- inside the overlay itself (it holds exclusive keyboard focus), so no
--- Hyprland bind is required here. SUPER+W already closes the focused window
--- globally.
-
--- Keep the overlay from animating in/out jarringly.
 hl.layer_rule({ match = { namespace = "ewweberlin.quickswitch" }, no_anim = true })

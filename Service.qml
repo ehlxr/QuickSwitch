@@ -21,6 +21,25 @@ Item {
     property string pendingAddr: ""
     property real lastRefreshTime: 0
 
+    // Hyprland bridge. The bindings in ~/.config/hypr/bindings.lua only route
+    // SUPER+TAB here while quickswitch_loaded is set (otherwise the Omarchy
+    // default "Next workspace" applies), and all in-switcher keys live in the
+    // "quickswitch" submap, which is only active while the strip is open. That
+    // keeps SUPER+Q/arrows untouched outside the switcher.
+    readonly property string leaveSubmap:
+        'if hl.get_current_submap() == "quickswitch" then hl.dispatch(hl.dsp.submap("reset")) end'
+
+    function hlEval(code) { Quickshell.execDetached(["hyprctl", "eval", code]) }
+    function announce() { hlEval('quickswitch_loaded = true; ' + leaveSubmap) }
+
+    Component.onCompleted: announce()
+    Component.onDestruction: hlEval('quickswitch_loaded = false; ' + leaveSubmap)
+
+    onOpenChanged: {
+        if (open) Hyprland.dispatch('hl.dsp.submap("quickswitch")')
+        else hlEval(leaveSubmap)
+    }
+
     function next() { if (windows.length) selected = (selected + 1) % windows.length }
     function prev() { if (windows.length) selected = (selected + windows.length - 1) % windows.length }
 
@@ -32,6 +51,7 @@ Item {
     function close(doFocus) {
         if (!open) return
         const entry = (doFocus && windows.length) ? windows[selected] : null
+        console.log("[task-switch] close focus=", doFocus, "sel=", selected, entry ? entry.cls : "-")
         open = false
         if (!entry) return
         pendingAddr = entry.address
@@ -91,6 +111,10 @@ Item {
         target: Hyprland
         function onRawEvent(event) {
             switch (event.name) {
+            case "configreloaded":
+                // A config reload recreates the Lua state; re-announce.
+                root.announce()
+                break
             case "openwindow":
             case "closewindow":
             case "changefloatingmode":
@@ -115,45 +139,34 @@ Item {
         }
     }
 
-    // Arrow keys (SUPER+Left/Right/Up/Down). The default Omarchy tiling
-    // bindings consume these before they reach the overlay's exclusive
-    // keyboard grab, so we intercept them here and re-dispatch: while the
-    // switcher is open they cycle prev/next; when closed they restore the
-    // original "focus adjacent window" behavior.
+    // In-switcher keys. These are bound only inside the "quickswitch" submap
+    // (see bindings.lua), so they never shadow the normal SUPER bindings.
+    function stepFromKey(forward) {
+        if (!root.open) return
+        root.sawKeyEvent = true
+        root.modsHeld = true
+        if (forward) root.next(); else root.prev()
+    }
+
+    GlobalShortcut { appid: root.shortAppId; name: "prev"; onPressed: root.stepFromKey(false) }
+    GlobalShortcut { appid: root.shortAppId; name: "focus-left"; onPressed: root.stepFromKey(false) }
+    GlobalShortcut { appid: root.shortAppId; name: "focus-up"; onPressed: root.stepFromKey(false) }
+    GlobalShortcut { appid: root.shortAppId; name: "focus-right"; onPressed: root.stepFromKey(true) }
+    GlobalShortcut { appid: root.shortAppId; name: "focus-down"; onPressed: root.stepFromKey(true) }
+
+    // SUPER+Q inside the switcher. As a SUPER-bound shortcut it cannot fire
+    // from a plain Q press, and the user's global SUPER+Q (close focused
+    // window) is inactive while the submap is on.
     GlobalShortcut {
         appid: root.shortAppId
-        name: "focus-left"
-        onPressed: {
-            if (root.open) { root.sawKeyEvent = true; root.modsHeld = true; root.prev() }
-            else { Hyprland.dispatch('hl.dsp.focus({ direction = "l" })') }
-        }
+        name: "quit"
+        onPressed: if (root.open) root.quitSelected()
     }
 
     GlobalShortcut {
         appid: root.shortAppId
-        name: "focus-right"
-        onPressed: {
-            if (root.open) { root.sawKeyEvent = true; root.modsHeld = true; root.next() }
-            else { Hyprland.dispatch('hl.dsp.focus({ direction = "r" })') }
-        }
-    }
-
-    GlobalShortcut {
-        appid: root.shortAppId
-        name: "focus-up"
-        onPressed: {
-            if (root.open) { root.sawKeyEvent = true; root.modsHeld = true; root.prev() }
-            else { Hyprland.dispatch('hl.dsp.focus({ direction = "u" })') }
-        }
-    }
-
-    GlobalShortcut {
-        appid: root.shortAppId
-        name: "focus-down"
-        onPressed: {
-            if (root.open) { root.sawKeyEvent = true; root.modsHeld = true; root.next() }
-            else { Hyprland.dispatch('hl.dsp.focus({ direction = "d" })') }
-        }
+        name: "cancel"
+        onPressed: root.close(false)
     }
 
     Process {
@@ -198,9 +211,13 @@ Item {
                 dead: false,
                 handle: null
             }
-            rec.handle = tl ? tl.wayland : null
             rec.title = c.title || "-"
             rec.cls = c.class || c.initialClass || ""
+            // Never screencopy password managers, auth prompts or private
+            // browsing windows; they fall back to the app icon.
+            rec.sensitive = Logic.isSensitive(rec.cls, rec.title)
+                || Logic.isSensitive(c.initialClass, c.initialTitle)
+            rec.handle = (tl && !rec.sensitive) ? tl.wayland : null
             rec.workspaceId = c.workspace ? c.workspace.id : rec.workspaceId
             rec.workspaceName = c.workspace ? c.workspace.name : rec.workspaceName
             records.push(rec)
@@ -235,6 +252,28 @@ Item {
                 color: "transparent"
                 anchors { top: true; bottom: true; left: true; right: true }
 
+                // Show the overlay only once SUPER is held for a moment, so a
+                // quick SUPER+TAB tap switches straight to the previous app
+                // without a flash (macOS Cmd+Tab behavior). The surface is
+                // mapped right away, so the keyboard grab is active anyway.
+                property bool shown: false
+                Timer {
+                    interval: 150
+                    running: true
+                    onTriggered: panel.shown = true
+                }
+
+                // A strip appearing under a resting pointer gets a synthetic
+                // hover enter; that must not override the MRU selection. Hover
+                // only counts after the pointer has actually moved.
+                onHoverArmedChanged: if (hoverArmed) mouseInside = stripHover.hovered
+
+                function trackPointer(p) {
+                    if (hoverArmed) return
+                    if (initialPos.x < 0) initialPos = Qt.point(p.x, p.y)
+                    else if (Math.abs(p.x - initialPos.x) + Math.abs(p.y - initialPos.y) > 4) hoverArmed = true
+                }
+
                 function activate() { root.close(panel.mouseInside) }
 
                 Timer {
@@ -242,13 +281,13 @@ Item {
                     interval: 150
                     repeat: true
                     running: true
+                    // Poll SUPER for as long as the strip is open (not just
+                    // until the first key event), so a missed release event
+                    // can never leave the exclusive keyboard grab stuck. A
+                    // failing hyprctl also closes the strip.
                     onTriggered: {
-                        if (root.sawKeyEvent) {
-                            if (root.modsHeld) stop()
-                            else panel.activate()
-                        } else {
-                            modCheck.running = true
-                        }
+                        if (root.sawKeyEvent && !root.modsHeld) panel.activate()
+                        else modCheck.running = true
                     }
                 }
 
@@ -258,7 +297,8 @@ Item {
                         'error(tostring(hl.is_key_down("Super_L") or hl.is_key_down("Super_R")))']
                     stdout: StdioCollector {
                         onStreamFinished: {
-                            if (!root.open || root.sawKeyEvent) return
+                            if (!root.open) return
+                            if (Date.now() - root.lastRefreshTime < 300) return
                             if (!text.trim().endsWith("true"))
                                 panel.activate()
                         }
@@ -268,11 +308,17 @@ Item {
                 Rectangle {
                     anchors.fill: parent
                     color: Color.menu.scrim
+                    opacity: panel.shown ? 1 : 0
+
+                    HoverHandler {
+                        onPointChanged: panel.trackPointer(point.scenePosition)
+                    }
                 }
 
                 // Clicking empty space dismisses without switching focus.
                 MouseArea {
                     anchors.fill: parent
+                    enabled: panel.shown
                     onClicked: root.close(false)
                 }
 
@@ -283,6 +329,7 @@ Item {
                     width: strip.width
                     height: strip.height
                     focus: true
+                    opacity: panel.shown ? 1 : 0
                     Keys.priority: Keys.BeforeItem
 
                     BorderSurface {
@@ -317,11 +364,15 @@ Item {
                                 required property int index
                                 readonly property var win: root.windows[index]
                                 readonly property bool isSelected: root.selected === index
+                                readonly property bool hovered: hover.hovered && panel.hoverArmed
+                                // Also fires when hover gets armed while the
+                                // pointer already rests on this card.
+                                onHoveredChanged: if (hovered) root.selected = index
 
                                 width: 180
                                 height: 130
 
-                                scale: (isSelected || hover.hovered) ? 1.05 : 1.0
+                                scale: (isSelected || hovered) ? 1.05 : 1.0
                                 opacity: isSelected ? 1.0 : 0.85
                                 transformOrigin: Item.Center
 
@@ -340,14 +391,14 @@ Item {
                                     clip: true
                                     borderSpec: Border.surfaceSpec(
                                         "popups", "border",
-                                        isSelected || hover.hovered ? Color.menu.selectedBorder : Color.popups.border,
+                                        isSelected || hovered ? Color.menu.selectedBorder : Color.popups.border,
                                         2)
 
                                     // Omarchy selection/hover affordance: a subtle
                                     // fill highlight instead of a hard-coded border.
                                     Rectangle {
                                         anchors.fill: parent
-                                        visible: isSelected || hover.hovered
+                                        visible: isSelected || hovered
                                         color: Color.menu.selectedBackground
                                     }
 
@@ -459,12 +510,11 @@ Item {
 
                                 HoverHandler {
                                     id: hover
-                                    onHoveredChanged: {
-                                        if (hovered) root.selected = index
-                                    }
+                                    onPointChanged: panel.trackPointer(point.scenePosition)
                                 }
 
                                 TapHandler {
+                                    enabled: panel.shown
                                     onTapped: {
                                         root.selected = index
                                         root.close(true)
@@ -503,14 +553,6 @@ Item {
                             event.accepted = true
                             return
                         }
-                        // SUPER+Q quits the highlighted app. Being inside the
-                        // exclusive grab already means SUPER is held, so don't
-                        // rely on event.modifiers (which isn't reliably set).
-                        if (event.key === Qt.Key_Q || event.key === Qt.Key_q) {
-                            root.quitSelected()
-                            event.accepted = true
-                            return
-                        }
                         if (event.key === Qt.Key_Tab || event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
                             root.next()
                             event.accepted = true
@@ -546,7 +588,9 @@ Item {
                     }
 
                     HoverHandler {
-                        onHoveredChanged: panel.mouseInside = hovered
+                        id: stripHover
+                        onPointChanged: panel.trackPointer(point.scenePosition)
+                        onHoveredChanged: if (panel.hoverArmed) panel.mouseInside = hovered
                     }
 
                     Component.onCompleted: forceActiveFocus()
