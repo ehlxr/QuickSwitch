@@ -12,6 +12,11 @@ Item {
 
     readonly property string shortAppId: "ewweberlin.quickswitch"
 
+    // Fixed rounded-corner styling for the switcher cards and shell, independent
+    // of the system cornerRadius (which mirrors Hyprland decoration:rounding).
+    readonly property int cardRadius: 9
+    readonly property int shellRadius: 12
+
     property bool open: false
     property var windows: []
     property var groups: []
@@ -288,7 +293,7 @@ Item {
                     BorderSurface {
                         id: stripBg
                         anchors.fill: strip
-                        radius: Style.cornerRadius
+                        radius: root.shellRadius
                         color: Color.popups.background
                         borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, 2)
                     }
@@ -321,8 +326,8 @@ Item {
                                 width: 180
                                 height: 130
 
-                                scale: (isSelected || hover.hovered) ? 1.05 : 1.0
-                                opacity: isSelected ? 1.0 : 0.85
+                                scale: isSelected ? 1.12 : (hover.hovered ? 0.99 : 0.88)
+                                opacity: isSelected ? 1.12 : (hover.hovered ? 0.92 : 0.6)
                                 transformOrigin: Item.Center
 
                                 Behavior on scale {
@@ -335,20 +340,37 @@ Item {
                                 BorderSurface {
                                     id: frame
                                     anchors.fill: parent
-                                    radius: Style.cornerRadius
+                                    radius: root.cardRadius
                                     color: Color.popups.background
                                     clip: true
                                     borderSpec: Border.surfaceSpec(
                                         "popups", "border",
-                                        isSelected || hover.hovered ? Color.menu.selectedBorder : Color.popups.border,
-                                        2)
+                                        isSelected ? Color.accent : (hover.hovered ? Color.menu.selectedBorder : Color.popups.border),
+                                        isSelected ? Math.max(2, Style.normalBorderWidth) : Style.normalBorderWidth)
 
-                                    // Omarchy selection/hover affordance: a subtle
-                                    // fill highlight instead of a hard-coded border.
+                                    // Omarchy selection affordance: the selected
+                                    // card gets an accent-tinted fill.
                                     Rectangle {
                                         anchors.fill: parent
                                         visible: isSelected || hover.hovered
-                                        color: Color.menu.selectedBackground
+                                        color: isSelected
+                                            ? Color.accent
+                                            : Color.menu.selectedBackground
+                                        opacity: isSelected ? 0.14 : 0.8
+                                    }
+
+                                    // Accent ring drawn ON TOP of the screenshot so
+                                    // the selected card is unmistakable, plus a
+                                    // translucent accent wash over the thumbnail.
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        visible: isSelected
+                                        radius: root.cardRadius - 1
+                                        color: "transparent"
+                                        z: 6
+                                        border.color: Color.accent
+                                        border.width: 4
+                                        opacity: 1.0
                                     }
 
                                     // Snapshot taken while the switcher opens. The
@@ -442,7 +464,7 @@ Item {
                                         anchors.margins: Style.spacing.md
                                         width: 56
                                         height: 56
-                                        radius: Style.cornerRadius
+                                        radius: Math.round(root.cardRadius * 0.55)
                                         color: "transparent"
                                         z: 4
 
@@ -484,7 +506,7 @@ Item {
                         elide: Text.ElideRight
                         horizontalAlignment: Text.AlignHCenter
                         text: root.windows.length ? root.windows[root.selected].title : ""
-                        color: Color.popups.text
+                        color: Color.accent
                         font.family: Style.font.family
                         font.pixelSize: Style.font.body
                         font.weight: Font.DemiBold
