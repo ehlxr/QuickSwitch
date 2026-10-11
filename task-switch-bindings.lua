@@ -1,4 +1,4 @@
--- ewweberlin.quickswitch bindings. Load with dofile() from
+-- ehlxr.quickswitch bindings. Load with dofile() from
 -- ~/.config/hypr/bindings.lua, or paste this block there instead if you prefer
 -- plugin updates never to change your Hyprland config (see README).
 
@@ -8,7 +8,7 @@
 hl.unbind("SUPER + TAB")
 o.bind("SUPER + TAB", "Task switch", function()
   if quickswitch_loaded then
-    hl.dispatch(hl.dsp.global("ewweberlin.quickswitch:next"))
+    hl.dispatch(hl.dsp.global("ehlxr.quickswitch:next"))
   else
     hl.dispatch(hl.dsp.focus({ workspace = "e+1" }))
   end
@@ -18,7 +18,7 @@ end, { repeating = true })
 -- submap). Normal SUPER+arrows / SUPER+Q bindings stay untouched outside it.
 -- ESCAPE always leaves the submap, even if the plugin has died.
 hl.define_submap("quickswitch", function()
-  local qs = function(name) return hl.dsp.global("ewweberlin.quickswitch:" .. name) end
+  local qs = function(name) return hl.dsp.global("ehlxr.quickswitch:" .. name) end
   hl.bind("SUPER + TAB", qs("next"), { repeating = true })
   hl.bind("SUPER + SHIFT + TAB", qs("prev"), { repeating = true })
   hl.bind("SUPER + LEFT", qs("focus-left"), { repeating = true })
@@ -34,4 +34,4 @@ hl.define_submap("quickswitch", function()
   end
 end)
 
-hl.layer_rule({ match = { namespace = "ewweberlin.quickswitch" }, no_anim = true })
+hl.layer_rule({ match = { namespace = "ehlxr.quickswitch" }, no_anim = true })

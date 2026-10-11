@@ -10,7 +10,7 @@ import "logic.js" as Logic
 Item {
     id: root
 
-    readonly property string shortAppId: "ewweberlin.quickswitch"
+    readonly property string shortAppId: "ehlxr.quickswitch"
 
     // Fixed rounded-corner styling for the switcher cards and shell, independent
     // of the system cornerRadius (which mirrors Hyprland decoration:rounding).

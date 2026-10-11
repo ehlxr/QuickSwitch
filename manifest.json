@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "ewweberlin.quickswitch",
+  "id": "ehlxr.quickswitch",
   "name": "QuickSwitch",
-  "version": "1.0.0",
-  "author": "ewweberlin",
+  "version": "1.1.0",
+  "author": "ehlxr",
   "license": "MIT",
   "description": "macOS-style task/window switcher with window previews. Hold SUPER, tap TAB to cycle, release SUPER to switch to the selected window's workspace. SUPER+Q quits the highlighted app.",
   "kinds": ["service"],

@@ -38,7 +38,7 @@ A beautiful, themed window/task switcher in the style of the macOS app switcher,
 Install it from this repository with the official Omarchy tooling:
 
 ```sh
-omarchy plugin add https://github.com/ewweberlin/QuickSwitch.git --enable
+omarchy plugin add https://github.com/ehlxr/QuickSwitch.git --enable
 ```
 
 This clones the repo into `~/.config/omarchy/plugins/`, and enables it.
@@ -46,7 +46,7 @@ This clones the repo into `~/.config/omarchy/plugins/`, and enables it.
 Bindings (enables SUPER + TAB) — add this line to `~/.config/hypr/bindings.lua`:
 
 ```lua
-dofile(os.getenv("HOME") .. "/.config/omarchy/plugins/ewweberlin.quickswitch/task-switch-bindings.lua")
+dofile(os.getenv("HOME") .. "/.config/omarchy/plugins/ehlxr.quickswitch/task-switch-bindings.lua")
 ```
 
 Restart the shell, reload Hyprland and Bindings:
@@ -67,8 +67,8 @@ contents of `task-switch-bindings.lua` into `bindings.lua` instead of the
 ### Removal
 
 ```sh
-omarchy plugin remove ewweberlin.quickswitch     # or: provide id interactively
-omarchy plugin disable ewweberlin.quickswitch    # disable without deleting
+omarchy plugin remove ehlxr.quickswitch     # or: provide id interactively
+omarchy plugin disable ehlxr.quickswitch    # disable without deleting
 ```
 
 `plugin remove` unloads and disables the plugin, then handles each install
@@ -77,7 +77,7 @@ a cloned install, or **backs up** a plain folder. `plugin add` installs from
 git can be updated later with:
 
 ```sh
-omarchy plugin update ewweberlin.quickswitch
+omarchy plugin update ehlxr.quickswitch
 ```
 
 
